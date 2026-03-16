@@ -1299,6 +1299,25 @@ function renderVariableRows(allVars, values) {
 }
 
 /**
+ * Remplace les références GTM {{VarName}} dans un code généré par leur
+ * valeur résolue sérialisée, avant de l'envoyer à inspectedWindow.eval.
+ * Nécessaire car les Custom JS variables GTM peuvent contenir {{OtherVar}}.
+ * @param {string} code
+ * @param {Object} values - Map { variableName: resolvedValue }
+ * @returns {string}
+ */
+function resolveGtmRefsInCode(code, values) {
+  if (!code || !code.includes('{{')) return code;
+  return code.replace(/\{\{([^}]+)\}\}/g, (match, varName) => {
+    const name = varName.trim();
+    if (values && Object.prototype.hasOwnProperty.call(values, name)) {
+      try { return JSON.stringify(values[name]); } catch { return 'undefined'; }
+    }
+    return 'undefined';
+  });
+}
+
+/**
  * Pour chaque variable nécessitant une éval page, lance l'éval et met à jour la cellule.
  */
 function evaluatePageVars(allVars, values, filter) {
@@ -1314,9 +1333,12 @@ function evaluatePageVars(allVars, values, filter) {
     const cell    = document.getElementById(rowId);
     if (!cell) return;
 
+    // Résoudre les {{VarName}} GTM dans le code avant eval
+    const codeToEval = resolveGtmRefsInCode(value.code, values);
+
     // Lancer l'évaluation dans la page
     chrome.devtools.inspectedWindow.eval(
-      value.code,
+      codeToEval,
       (result, exceptionInfo) => {
         if (!cell) return;
         if (exceptionInfo) {
