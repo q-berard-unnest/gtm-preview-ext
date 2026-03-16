@@ -1288,3 +1288,81 @@ input:focus {
 
 /* Fix: accent variable used in filter buttons */
 :root { --accent: var(--color-pageview); --bg-active: var(--bg-input); }
+
+/* ─── Provider icon (badge coloré avant le nom du tag) ──────────────────────── */
+.tag-provider-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.2px;
+  line-height: 1.4;
+}
+
+/* ─── Paramètres complexes dans le détail de tag ────────────────────────────── */
+
+/* Section pour un paramètre LIST ou MAP */
+.param-section {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* En-tête d'une section de paramètre complexe */
+.param-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--json-key);
+  padding: 2px 0 3px 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Badge compteur d'éléments */
+.param-count {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-dim);
+  background: var(--bg-input);
+  padding: 0 4px;
+  border-radius: 6px;
+}
+
+/* Table imbriquée (event settings, user properties...) */
+.tag-params-table--nested {
+  margin-left: 8px;
+  margin-bottom: 2px;
+  border-left: 2px solid var(--border-light);
+  padding-left: 8px;
+}
+
+/* Clé dans une table imbriquée (moins proéminente) */
+.tag-param-key--nested {
+  color: var(--text-secondary);
+  min-width: 120px;
+}
+
+/* Expansion inline des settings variables */
+.tag-param-settings-expand {
+  margin-top: 3px;
+  padding-top: 2px;
+  border-top: 1px dashed var(--border);
+}
+
+/* Item générique dans une liste */
+.param-list-item {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  padding: 1px 4px;
+  margin-left: 8px;
+  border-left: 2px solid var(--border);
+}

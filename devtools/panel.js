@@ -1027,6 +1027,7 @@ function buildTagItem(r) {
       <span class="tag-item__icon">${icon}</span>
       <div class="tag-item__body">
         <div class="tag-item__header">
+          ${getTagProviderIcon(r.tagType)}
           <span class="tag-item__name" title="${escapeHtml(r.tagName)}">${escapeHtml(r.tagName)}</span>
           <span class="tag-type-pill tag-type-pill--${typeClass}">${escapeHtml(r.tagTypeLabel)}</span>
           ${onceHtml}
@@ -1035,6 +1036,33 @@ function buildTagItem(r) {
         ${detailHtml}
       </div>
     </div>`;
+}
+
+// ─── Provider icons ────────────────────────────────────────────────────────────
+
+const TAG_PROVIDER_INFO = {
+  'html':   { label: '</>',  color: '#4fc3f7', bg: 'rgba(79,195,247,0.12)' },
+  'gaawc':  { label: 'GA4',  color: '#66bb6a', bg: 'rgba(102,187,106,0.12)' },
+  'gaawe':  { label: 'GA4',  color: '#66bb6a', bg: 'rgba(102,187,106,0.12)' },
+  'ua':     { label: 'UA',   color: '#ffb74d', bg: 'rgba(255,183,77,0.12)' },
+  'awct':   { label: 'Ads',  color: '#81c784', bg: 'rgba(129,199,132,0.12)' },
+  'sp':     { label: 'Ads',  color: '#81c784', bg: 'rgba(129,199,132,0.12)' },
+  'gclidw': { label: 'G',    color: '#81c784', bg: 'rgba(129,199,132,0.10)' },
+  'flc':    { label: 'FL',   color: '#ce93d8', bg: 'rgba(206,147,216,0.12)' },
+  'fls':    { label: 'FL',   color: '#ce93d8', bg: 'rgba(206,147,216,0.12)' },
+  'img':    { label: 'IMG',  color: '#90a4ae', bg: 'rgba(144,164,174,0.10)' },
+  'bzi':    { label: 'BIZ',  color: '#ff8a65', bg: 'rgba(255,138,101,0.12)' },
+};
+
+/**
+ * Retourne le HTML du badge provider pour un type de tag.
+ * @param {string} type
+ * @returns {string}
+ */
+function getTagProviderIcon(type) {
+  const info = TAG_PROVIDER_INFO[type];
+  if (!info) return '';
+  return `<span class="tag-provider-icon" style="color:${info.color};background:${info.bg}">${escapeHtml(info.label)}</span>`;
 }
 
 /**
@@ -1100,7 +1128,8 @@ function toggleTagDetail(item) {
 
 /**
  * Construit l'élément DOM du détail des paramètres d'un tag.
- * @param {Object} result        - TagResult (avec tagParams)
+ * Gère les types simples (TEMPLATE/BOOLEAN) et complexes (LIST/MAP).
+ * @param {Object} result         - TagResult (avec tagParams)
  * @param {Object} variableValues - Variables résolues pour l'événement courant
  * @returns {HTMLElement}
  */
@@ -1114,53 +1143,185 @@ function buildTagDetailEl(result, variableValues) {
     return div;
   }
 
-  const rows = params.map(p => {
-    const key = escapeHtml(p.key || '');
-    let valueHtml;
+  const simpleParams  = params.filter(p => !p.list && !p.map);
+  const complexParams = params.filter(p => p.list  || p.map);
 
-    if (p.list) {
-      valueHtml = `<span class="tag-param-complex">[liste — ${p.list.length} élément(s)]</span>`;
-    } else if (p.map) {
-      valueHtml = `<span class="tag-param-complex">[map — ${p.map.length} entrée(s)]</span>`;
-    } else {
-      const raw = p.value ?? '';
-      valueHtml = `<span class="tag-param-raw">${escapeHtml(String(raw))}</span>`;
+  let html = '';
 
-      // Résolution des références {{VarName}}
-      if (typeof raw === 'string' && raw.includes('{{') && variableValues) {
-        const resolved = resolveParamDisplay(raw, variableValues);
-        if (resolved !== null && resolved !== raw) {
-          valueHtml += ` <span class="tag-param-resolved">→ ${escapeHtml(String(resolved))}</span>`;
-        }
-      }
-    }
+  // Paramètres simples (scalaires)
+  if (simpleParams.length > 0) {
+    const rows = simpleParams.map(p => buildSimpleParamRow(p, variableValues)).join('');
+    html += `<table class="tag-params-table"><tbody>${rows}</tbody></table>`;
+  }
 
-    return `<tr><td class="tag-param-key">${key}</td><td class="tag-param-value">${valueHtml}</td></tr>`;
-  }).join('');
+  // Paramètres complexes (listes, maps — event settings, user properties, etc.)
+  for (const p of complexParams) {
+    html += buildComplexParam(p, variableValues);
+  }
 
-  div.innerHTML = `<table class="tag-params-table"><tbody>${rows}</tbody></table>`;
+  div.innerHTML = html;
   return div;
 }
 
 /**
- * Résout les références {{VarName}} dans une valeur de paramètre.
- * @param {string} template
- * @param {Object} variableValues
- * @returns {string|null} Valeur résolue, ou null si aucune variable connue
+ * Construit une ligne de tableau pour un paramètre scalaire.
+ * Gère les références {{VarName}}, y compris les tableaux de settings (gtes/gtcs).
+ */
+function buildSimpleParamRow(p, variableValues) {
+  const key = escapeHtml(p.key || '');
+  const raw = p.value ?? '';
+  let valueHtml = `<span class="tag-param-raw">${escapeHtml(String(raw))}</span>`;
+
+  if (typeof raw === 'string' && raw.includes('{{') && variableValues) {
+    const resolved = resolveParamDisplay(raw, variableValues);
+    if (resolved !== null && resolved !== raw) {
+      if (Array.isArray(resolved) && resolved.length > 0 && resolved[0] && 'parameter' in resolved[0]) {
+        // Variable de type Event/Config Settings → tableau imbriqué
+        const nestedRows = resolved.map(r => {
+          const pName = escapeHtml(String(r.parameter ?? ''));
+          const pVal  = formatParamResolvedValue(r.value);
+          return `<tr><td class="tag-param-key tag-param-key--nested">${pName}</td><td class="tag-param-value">${pVal}</td></tr>`;
+        }).join('');
+        valueHtml += `<div class="tag-param-settings-expand">
+          <table class="tag-params-table tag-params-table--nested"><tbody>${nestedRows}</tbody></table>
+        </div>`;
+      } else if (Array.isArray(resolved)) {
+        valueHtml += ` <span class="tag-param-resolved">→ [${resolved.length} élément(s)]</span>`;
+      } else {
+        valueHtml += ` <span class="tag-param-resolved">→ ${escapeHtml(String(resolved))}</span>`;
+      }
+    }
+  }
+
+  return `<tr><td class="tag-param-key">${key}</td><td class="tag-param-value">${valueHtml}</td></tr>`;
+}
+
+/**
+ * Formate une valeur résolue dans un tableau de settings imbriqué.
+ */
+function formatParamResolvedValue(value) {
+  if (value === null || value === undefined) {
+    return '<span class="tag-param-complex">—</span>';
+  }
+  if (value && typeof value === 'object' && value.__gtmPreviewPageEval) {
+    return '<span class="tag-param-complex">⟳ js eval</span>';
+  }
+  if (Array.isArray(value)) {
+    return `<span class="tag-param-complex">[${value.length}]</span>`;
+  }
+  return `<span class="tag-param-resolved">${escapeHtml(String(value))}</span>`;
+}
+
+/**
+ * Construit l'affichage d'un paramètre complexe (LIST ou MAP de haut niveau).
+ */
+function buildComplexParam(p, variableValues) {
+  const label = escapeHtml(p.key || '');
+  if (p.list)  return buildListParam(label, p.list,  variableValues);
+  if (p.map)   return buildMapEntries(label, p.map,  variableValues);
+  return '';
+}
+
+/**
+ * Affiche un paramètre LIST comme section expandée.
+ * Détecte le pattern {parameter, value} (event/user settings) pour un rendu tabulaire.
+ */
+function buildListParam(label, list, variableValues) {
+  if (!list || list.length === 0) {
+    return `<div class="param-section"><div class="param-section-title">${label} <span class="param-count">vide</span></div></div>`;
+  }
+
+  // Détection du pattern event settings : chaque item MAP a les clés "parameter" et "value"
+  const isParamValueList = list.every(
+    item => item.map &&
+      item.map.some(e => e.key === 'parameter') &&
+      item.map.some(e => e.key === 'value')
+  );
+
+  let inner = `<div class="param-section-title">${label} <span class="param-count">${list.length}</span></div>`;
+
+  if (isParamValueList) {
+    const rows = list.map(item => {
+      const findVal = k => item.map.find(e => e.key === k)?.value ?? '';
+      const paramName  = findVal('parameter');
+      const paramValue = findVal('value');
+
+      const resolvedValue = variableValues && typeof paramValue === 'string' && paramValue.includes('{{')
+        ? resolveParamDisplay(paramValue, variableValues)
+        : null;
+
+      let valueHtml = `<span class="tag-param-raw">${escapeHtml(String(paramValue))}</span>`;
+      if (resolvedValue !== null && resolvedValue !== paramValue) {
+        valueHtml += ` <span class="tag-param-resolved">→ ${escapeHtml(String(resolvedValue))}</span>`;
+      }
+      return `<tr>
+        <td class="tag-param-key tag-param-key--nested">${escapeHtml(String(paramName))}</td>
+        <td class="tag-param-value">${valueHtml}</td>
+      </tr>`;
+    }).join('');
+
+    inner += `<table class="tag-params-table tag-params-table--nested"><tbody>${rows}</tbody></table>`;
+  } else {
+    // Liste générique : chaque item peut être un MAP avec des clés arbitraires
+    list.forEach((item, i) => {
+      if (item.map) {
+        inner += buildMapEntries(`[${i}]`, item.map, variableValues);
+      } else if (item.value !== undefined) {
+        inner += `<div class="param-list-item">${escapeHtml(String(item.value))}</div>`;
+      }
+    });
+  }
+
+  return `<div class="param-section">${inner}</div>`;
+}
+
+/**
+ * Affiche un tableau de clé/valeurs MAP.
+ */
+function buildMapEntries(label, map, variableValues) {
+  if (!map || map.length === 0) return '';
+
+  const rows = map.map(entry => {
+    const raw = entry.value ?? '';
+    let valueHtml = `<span class="tag-param-raw">${escapeHtml(String(raw))}</span>`;
+    if (typeof raw === 'string' && raw.includes('{{') && variableValues) {
+      const resolved = resolveParamDisplay(raw, variableValues);
+      if (resolved !== null && resolved !== raw) {
+        valueHtml += ` <span class="tag-param-resolved">→ ${escapeHtml(String(resolved))}</span>`;
+      }
+    }
+    return `<tr>
+      <td class="tag-param-key tag-param-key--nested">${escapeHtml(String(entry.key || ''))}</td>
+      <td class="tag-param-value">${valueHtml}</td>
+    </tr>`;
+  }).join('');
+
+  const labelHtml = label ? `<div class="param-section-title">${label}</div>` : '';
+  return `<div class="param-section">${labelHtml}
+    <table class="tag-params-table tag-params-table--nested"><tbody>${rows}</tbody></table>
+  </div>`;
+}
+
+/**
+ * Résout les références {{VarName}} dans un template de paramètre.
+ * Retourne la valeur brute (y compris arrays pour gtes/gtcs), ou null.
  */
 function resolveParamDisplay(template, variableValues) {
-  // Template = une seule variable
+  // Template = une seule variable → retourner la valeur brute
   const single = template.match(/^\{\{([^}]+)\}\}$/);
   if (single) {
     const name = single[1].trim();
-    if (name in variableValues) return variableValues[name];
+    if (Object.prototype.hasOwnProperty.call(variableValues, name)) return variableValues[name];
     return null;
   }
-  // Interpolation dans une chaîne
+  // Interpolation multi-variables dans une chaîne
   let hasResolved = false;
   const result = template.replace(/\{\{([^}]+)\}\}/g, (_, name) => {
     const v = variableValues[name.trim()];
-    if (v !== undefined && v !== null) { hasResolved = true; return String(v); }
+    if (v !== undefined && v !== null && !Array.isArray(v)) {
+      hasResolved = true;
+      return String(v);
+    }
     return `{{${name}}}`;
   });
   return hasResolved ? result : null;
@@ -1319,9 +1480,22 @@ function resolveGtmRefsInCode(code, values) {
 
 /**
  * Pour chaque variable nécessitant une éval page, lance l'éval et met à jour la cellule.
+ * Les variables Custom JS (jsm) résolvent leurs {{VarName}} via __gtmPreviewVars
+ * injecté avant le code eval, ce qui évite de casser les chaînes JSON encodées.
  */
 function evaluatePageVars(allVars, values, filter) {
   const PAGE_EVAL_KEY = '__gtmPreviewPageEval';
+
+  // Construire le dictionnaire des valeurs non-pageEval pour __gtmPreviewVars
+  const nonEvalVars = {};
+  for (const [k, v] of Object.entries(values)) {
+    if (!v || typeof v !== 'object' || !v[PAGE_EVAL_KEY]) {
+      nonEvalVars[k] = v;
+    }
+  }
+  let varsJson;
+  try { varsJson = JSON.stringify(nonEvalVars); } catch { varsJson = '{}'; }
+  const varsPreamble = `var __gtmPreviewVars = ${varsJson};\n`;
 
   allVars.forEach(varDef => {
     if (filter && !varDef.name.toLowerCase().includes(filter)) return;
@@ -1329,14 +1503,13 @@ function evaluatePageVars(allVars, values, filter) {
     const value = values[varDef.name];
     if (!value || typeof value !== 'object' || !value[PAGE_EVAL_KEY]) return;
 
-    const rowId   = 'var-row-' + varNameToId(varDef.name);
-    const cell    = document.getElementById(rowId);
+    const rowId = 'var-row-' + varNameToId(varDef.name);
+    const cell  = document.getElementById(rowId);
     if (!cell) return;
 
-    // Résoudre les {{VarName}} GTM dans le code avant eval
-    const codeToEval = resolveGtmRefsInCode(value.code, values);
+    // Injecter __gtmPreviewVars + code de la variable
+    const codeToEval = varsPreamble + value.code;
 
-    // Lancer l'évaluation dans la page
     chrome.devtools.inspectedWindow.eval(
       codeToEval,
       (result, exceptionInfo) => {
