@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<!--
+  test-page.html — Page de test locale pour GTM Preview
+  Simule des pushes dataLayer variés pour tester l'extension.
+  Ouvrir cette page dans Chrome après avoir installé l'extension,
+  puis ouvrir les DevTools → onglet "GTM Preview".
+-->
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>GTM Preview — Page de test</title>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; }
+    h1 { color: #333; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0; }
+    button {
+      padding: 8px 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #f5f5f5;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button:hover { background: #e0e0e0; }
+    .log {
+      background: #1e1e1e;
+      color: #aaa;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 12px;
+      border-radius: 4px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 20px;
+    }
+    .log span { display: block; margin-bottom: 4px; }
+    code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+  <h1>GTM Preview — Page de test</h1>
+  <p>
+    Cette page simule des appels <code>dataLayer.push()</code> variés.
+    Ouvrez les DevTools (F12) → onglet <strong>"GTM Preview"</strong>
+    pour voir les événements apparaître en temps réel.
+  </p>
+
+  <h2>Pré-chargement</h2>
+  <p>Les éléments ci-dessous sont poussés <em>avant</em> l'injection du hook (simulé via <code>window.onload</code>).</p>
+
+  <h2>Boutons de test</h2>
+  <div class="btn-group">
+    <button onclick="pushPageView()">Pageview</button>
+    <button onclick="pushCustomEvent()">Custom Event (purchase)</button>
+    <button onclick="pushConsent()">Consent Update</button>
+    <button onclick="pushEcommerce()">Ecommerce (add_to_cart)</button>
+    <button onclick="pushEmptyEvent()">Push vide</button>
+    <button onclick="pushMultiple()">3 pushes rapides</button>
+    <button onclick="pushNested()">Objet imbriqué profond</button>
+    <button onclick="clearDataLayer()">Vider le dataLayer</button>
+  </div>
+
+  <h2>État du dataLayer</h2>
+  <div class="log" id="log">
+    <span style="color:#555">— En attente de pushes —</span>
+  </div>
+
+  <script>
+    // Pré-charger quelques éléments dans le dataLayer avant le hook
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push({ event: 'gtm.js', 'gtm.start': Date.now() });
+    window.dataLayer.push({ event: 'gtm.dom' });
+
+    // ─── Fonctions de test ──────────────────────────────────────
+
+    function pushPageView() {
+      push({ event: 'pageview', page_title: document.title, page_path: '/test' });
+    }
+
+    function pushCustomEvent() {
+      push({
+        event: 'purchase',
+        ecommerce: {
+          transaction_id: 'T_' + Math.floor(Math.random() * 10000),
+          value: 99.90,
+          currency: 'EUR',
+          items: [
+            { item_id: 'SKU_001', item_name: 'Produit A', quantity: 2, price: 49.95 }
+          ]
+        }
+      });
+    }
+
+    function pushConsent() {
+      push({
+        event: 'consent_update',
+        consent: {
+          analytics_storage: 'granted',
+          ad_storage: 'denied',
+          functionality_storage: 'granted'
+        }
+      });
+    }
+
+    function pushEcommerce() {
+      push({
+        event: 'add_to_cart',
+        ecommerce: {
+          currency: 'EUR',
+          value: 25.00,
+          items: [{ item_id: 'SKU_002', item_name: 'Produit B', price: 25.00 }]
+        },
+        user_id: 'U_12345'
+      });
+    }
+
+    function pushEmptyEvent() {
+      push({ event: 'custom_empty' });
+    }
+
+    function pushMultiple() {
+      push({ event: 'step_1', funnel: 'checkout' });
+      setTimeout(() => push({ event: 'step_2', funnel: 'checkout' }), 100);
+      setTimeout(() => push({ event: 'step_3', funnel: 'checkout', value: 42 }), 200);
+    }
+
+    function pushNested() {
+      push({
+        event: 'deep_object',
+        level1: {
+          level2: {
+            level3: {
+              level4: {
+                value: 'profond',
+                array: [1, 2, { nested: true }]
+              }
+            }
+          }
+        },
+        'key-with-dashes': true,
+        null_value: null,
+        bool_false: false,
+        number: 3.14159
+      });
+    }
+
+    function clearDataLayer() {
+      window.dataLayer = [];
+      logEntry('dataLayer réinitialisé', '#ff9800');
+    }
+
+    // ─── Wrapper push avec log local ───────────────────────────
+
+    function push(obj) {
+      window.dataLayer.push(obj);
+      logEntry(JSON.stringify(obj).substring(0, 80) + (JSON.stringify(obj).length > 80 ? '…' : ''));
+    }
+
+    function logEntry(text, color) {
+      const log = document.getElementById('log');
+      const span = document.createElement('span');
+      span.style.color = color || '#66bb6a';
+      span.textContent = new Date().toLocaleTimeString() + ' → ' + text;
+      log.appendChild(span);
+      log.scrollTop = log.scrollHeight;
+
+      // Supprimer le message d'attente
+      const placeholder = log.querySelector('span[style*="#555"]');
+      if (placeholder) placeholder.remove();
+    }
+
+    // Simuler gtm.load après le chargement de la page
+    window.addEventListener('load', () => {
+      window.dataLayer.push({ event: 'gtm.load' });
+      logEntry('gtm.load pushé (window.load)', '#4fc3f7');
+    });
+  </script>
+</body>
+</html>

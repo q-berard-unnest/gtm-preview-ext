@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<!--
+  popup.html — Interface du popup de l'extension GTM Preview
+  Permet : import du JSON GTM, toggle par site, infos du conteneur
+-->
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>GTM Preview</title>
+  <style>
+    /* ─── Variables & Base ───────────────────────────────────── */
+    :root {
+      --bg:         #1e1e1e;
+      --bg-card:    #2d2d2d;
+      --bg-input:   #3c3c3c;
+      --bg-hover:   #3a3a3a;
+      --text:       #cccccc;
+      --text-dim:   #888;
+      --border:     #444;
+      --accent:     #4fc3f7;
+      --green:      #66bb6a;
+      --orange:     #ff9800;
+      --red:        #ef5350;
+      --font:       -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono:  'Consolas', 'Monaco', monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 320px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 12px;
+      padding: 0;
+    }
+
+    /* ─── En-tête ────────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: #333;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .header__title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .header__version {
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    .badge-mode {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: var(--orange);
+      color: #000;
+      text-transform: uppercase;
+    }
+
+    /* ─── Sections ───────────────────────────────────────────── */
+    .section {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    /* ─── Carte conteneur ────────────────────────────────────── */
+    .container-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+
+    .container-card__empty {
+      color: var(--text-dim);
+      font-style: italic;
+      font-size: 12px;
+    }
+
+    .container-card__name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .container-card__meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .meta-pill {
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 8px;
+      background: var(--bg-input);
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+    }
+
+    /* ─── Boutons ─────────────────────────────────────────────── */
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      font-family: var(--font);
+      transition: opacity 0.15s, background 0.15s;
+    }
+
+    .btn:hover { opacity: 0.9; }
+    .btn:active { opacity: 0.8; }
+
+    .btn--primary {
+      background: var(--accent);
+      color: #000;
+    }
+
+    .btn--secondary {
+      background: var(--bg-input);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn--danger {
+      background: transparent;
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+
+    .btn + .btn { margin-top: 6px; }
+
+    /* ─── Toggle site ─────────────────────────────────────────── */
+    .site-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .site-hostname {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Toggle switch */
+    .toggle-wrap {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-shrink: 0;
+    }
+
+    .toggle-label {
+      font-size: 11px;
+      color: var(--text-dim);
+      min-width: 48px;
+      text-align: right;
+    }
+
+    .toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle__track {
+      position: absolute;
+      inset: 0;
+      background: var(--bg-input);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+      border: 1px solid var(--border);
+    }
+
+    .toggle__track::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .toggle input:checked + .toggle__track {
+      background: var(--green);
+      border-color: var(--green);
+    }
+
+    .toggle input:checked + .toggle__track::after {
+      transform: translateX(16px);
+      background: #fff;
+    }
+
+    /* ─── Input file caché ───────────────────────────────────── */
+    #file-input { display: none; }
+
+    /* ─── Message de feedback ────────────────────────────────── */
+    .feedback {
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 4px;
+      margin-top: 8px;
+      display: none;
+    }
+
+    .feedback.success {
+      background: rgba(102, 187, 106, 0.15);
+      color: var(--green);
+      border: 1px solid rgba(102, 187, 106, 0.3);
+      display: block;
+    }
+
+    .feedback.error {
+      background: rgba(239, 83, 80, 0.15);
+      color: var(--red);
+      border: 1px solid rgba(239, 83, 80, 0.3);
+      display: block;
+    }
+
+    /* ─── Footer ─────────────────────────────────────────────── */
+    .footer {
+      padding: 8px 14px;
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- En-tête -->
+  <div class="header">
+    <div>
+      <div class="header__title">GTM Preview</div>
+      <div class="header__version">v0.6.0</div>
+    </div>
+    <span class="badge-mode" id="badge-mode">Dry-run</span>
+  </div>
+
+  <!-- Section Conteneur GTM -->
+  <div class="section">
+    <div class="section-title">Conteneur GTM</div>
+
+    <div class="container-card" id="container-card">
+      <div class="container-card__empty" id="container-empty">
+        Aucun conteneur chargé
+      </div>
+      <div id="container-loaded" style="display:none">
+        <div class="container-card__name" id="container-name"></div>
+        <div class="container-card__meta">
+          <span class="meta-pill" id="container-id"></span>
+          <span class="meta-pill" id="container-version"></span>
+          <span class="meta-pill" id="container-tags"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input fichier caché -->
+    <input type="file" id="file-input" accept=".json,application/json">
+
+    <!-- Boutons import -->
+    <button class="btn btn--primary" id="btn-import">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+        <path d="M8 1v8.5l-2.5-2.5-.7.7L8 11l3.2-3.3-.7-.7L8 9.5V1H8zM2 13v1h12v-1H2z"/>
+      </svg>
+      Importer un JSON GTM
+    </button>
+
+    <button class="btn btn--secondary" id="btn-clear-container" style="display:none">
+      Effacer le conteneur
+    </button>
+
+    <div class="feedback" id="import-feedback"></div>
+  </div>
+
+  <!-- Section Toggle par site -->
+  <div class="section">
+    <div class="section-title">Site actuel</div>
+    <span class="site-hostname" id="site-hostname">—</span>
+
+    <!-- Activer/désactiver -->
+    <div class="site-row" style="margin-top: 8px;">
+      <span style="font-size: 11px; color: var(--text-dim);">Monitoring actif</span>
+      <div class="toggle-wrap">
+        <span class="toggle-label" id="toggle-label">Désactivé</span>
+        <label class="toggle" title="Activer/désactiver sur ce site">
+          <input type="checkbox" id="site-toggle">
+          <span class="toggle__track"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Bloquer GTM.js -->
+    <div class="site-row" style="margin-top: 8px;">
+      <div>
+        <div style="font-size: 11px; color: var(--text);">Bloquer GTM.js</div>
+        <div style="font-size: 10px; color: var(--text-dim); margin-top: 1px;">Simule le cycle de vie GTM sans le charger</div>
+      </div>
+      <div class="toggle-wrap">
+        <span class="toggle-label" id="block-label">Désactivé</span>
+        <label class="toggle" title="Bloquer GTM.js sur ce site">
+          <input type="checkbox" id="block-toggle">
+          <span class="toggle__track"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="feedback" id="site-feedback"></div>
+  </div>
+
+  <!-- Section Actions -->
+  <div class="section">
+    <div class="section-title">Actions</div>
+    <button class="btn btn--secondary" id="btn-open-devtools">
+      Ouvrir le panel DevTools
+    </button>
+  </div>
+
+  <div class="footer">Ouvrez les DevTools (F12) → onglet "GTM Preview"</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

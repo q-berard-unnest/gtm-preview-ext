@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<!--
+  panel.html — Interface principale du DevTools Panel GTM Preview
+  Affiche la timeline des événements dataLayer et les détails de chaque push.
+-->
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GTM Preview</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+
+  <!-- ── Barre d'en-tête ──────────────────────────────────────────────────── -->
+  <header class="toolbar">
+    <div class="toolbar-left">
+      <span class="app-title">GTM Preview</span>
+      <span class="badge badge--mode" id="badge-mode" title="Mode d'exécution">Dry-run</span>
+    </div>
+    <div class="toolbar-center">
+      <span class="status-dot" id="status-dot" title="État de la connexion"></span>
+      <span class="status-label" id="status-label">En attente…</span>
+    </div>
+    <div class="toolbar-right">
+      <!-- Infos conteneur chargé -->
+      <span class="container-info" id="container-info" title="Conteneur GTM chargé">
+        Aucun conteneur
+      </span>
+      <!-- Bouton exporter -->
+      <button class="btn btn--icon" id="btn-export" title="Exporter les événements en JSON">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+          <path d="M8 1v8.5l-2.5-2.5-.7.7L8 11l3.2-3.3-.7-.7L8 9.5V1H8zM2 13v1h12v-1H2z"/>
+        </svg>
+        Exporter
+      </button>
+      <!-- Bouton effacer -->
+      <button class="btn btn--icon" id="btn-clear" title="Effacer tous les événements">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor">
+          <path d="M2 3h12v1.5H2V3zm2.5 2h7l-.8 8H5.3L4.5 5zm2 2v5h1V7h-1zm2 0v5h1V7h-1z"/>
+        </svg>
+        Effacer
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Corps principal (layout split) ──────────────────────────────────── -->
+  <main class="main-layout">
+
+    <!-- ── Panneau gauche : timeline des événements ─────────────────────── -->
+    <aside class="events-panel">
+      <div class="events-header">
+        <span class="events-title">Événements</span>
+        <span class="events-count" id="events-count">0</span>
+      </div>
+
+      <!-- Zone de filtrage rapide -->
+      <div class="search-box">
+        <input
+          type="text"
+          id="search-input"
+          placeholder="Filtrer les événements…"
+          autocomplete="off"
+          spellcheck="false"
+        />
+      </div>
+
+      <!-- Liste des événements -->
+      <div class="events-list" id="events-list" role="list">
+        <!-- Peuplé dynamiquement par panel.js -->
+      </div>
+
+      <!-- État vide -->
+      <div class="empty-state" id="empty-state">
+        <div class="empty-state__icon">⬡</div>
+        <p class="empty-state__title">Aucun événement</p>
+        <p class="empty-state__sub">
+          Naviguez sur un site pour voir<br>les événements dataLayer apparaître ici.
+        </p>
+      </div>
+    </aside>
+
+    <!-- ── Séparateur redimensionnable ──────────────────────────────────── -->
+    <div class="resizer" id="resizer" title="Redimensionner"></div>
+
+    <!-- ── Panneau droit : détail de l'événement sélectionné ────────────── -->
+    <section class="detail-panel">
+      <!-- État initial (rien de sélectionné) -->
+      <div class="detail-placeholder" id="detail-placeholder">
+        <p>Sélectionnez un événement pour voir son contenu</p>
+      </div>
+
+      <!-- Contenu de l'événement sélectionné -->
+      <div class="detail-content" id="detail-content" hidden>
+        <!-- En-tête de l'événement -->
+        <div class="detail-header">
+          <div class="detail-header__left">
+            <span class="detail-event-badge" id="detail-event-badge"></span>
+            <span class="detail-event-name" id="detail-event-name"></span>
+          </div>
+          <div class="detail-header__right">
+            <span class="detail-timestamp" id="detail-timestamp"></span>
+            <span class="detail-index" id="detail-index"></span>
+          </div>
+        </div>
+
+        <!-- Onglets du détail -->
+        <div class="detail-tabs">
+          <button class="detail-tab active" data-tab="push">Push reçu</button>
+          <button class="detail-tab" data-tab="tags" id="tab-tags-btn">Tags</button>
+          <button class="detail-tab" data-tab="triggers" id="tab-triggers-btn">Triggers</button>
+          <button class="detail-tab" data-tab="variables" id="tab-variables-btn">Variables</button>
+          <button class="detail-tab" data-tab="datalayer">dataLayer fusionné</button>
+        </div>
+
+        <!-- Contenu Push reçu -->
+        <div class="detail-tab-content active" id="tab-push">
+          <div class="json-toolbar">
+            <button class="btn-copy" id="btn-copy-push" title="Copier le JSON">⎘ Copier</button>
+          </div>
+          <pre class="json-viewer" id="json-push"></pre>
+        </div>
+
+        <!-- Contenu Tags évalués -->
+        <div class="detail-tab-content" id="tab-tags">
+          <div class="tags-toolbar">
+            <input type="text" id="tag-search" placeholder="Filtrer par nom…" autocomplete="off" spellcheck="false">
+            <div class="tag-filter-btns">
+              <button class="tag-filter-btn active" data-filter="all">Tous</button>
+              <button class="tag-filter-btn" data-filter="FIRED">Déclenchés</button>
+              <button class="tag-filter-btn" data-filter="BLOCKED">Bloqués</button>
+              <button class="tag-filter-btn" data-filter="NOT_FIRED">Non déclenchés</button>
+            </div>
+          </div>
+          <div class="tags-list" id="tags-list"></div>
+        </div>
+
+        <!-- Contenu Triggers évalués -->
+        <div class="detail-tab-content" id="tab-triggers">
+          <div class="trigger-results" id="trigger-results"></div>
+        </div>
+
+        <!-- Contenu Variables résolues -->
+        <div class="detail-tab-content" id="tab-variables">
+          <div class="variables-toolbar">
+            <input type="text" id="var-search" placeholder="Filtrer les variables…" autocomplete="off" spellcheck="false">
+            <button class="btn btn--icon" id="btn-reeval" title="Ré-évaluer les variables client-side dans la page courante">
+              ⟳ Ré-évaluer
+            </button>
+          </div>
+          <div class="variables-list" id="variables-list"></div>
+        </div>
+
+        <!-- Contenu dataLayer fusionné -->
+        <div class="detail-tab-content" id="tab-datalayer">
+          <div class="json-toolbar">
+            <button class="btn-copy" id="btn-copy-datalayer" title="Copier le JSON">⎘ Copier</button>
+          </div>
+          <pre class="json-viewer" id="json-datalayer"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ── Barre de statut ───────────────────────────────────────────────── -->
+  <footer class="statusbar">
+    <span id="statusbar-text">Prêt</span>
+  </footer>
+
+  <script src="panel.js"></script>
+</body>
+</html>

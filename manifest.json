@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "GTM Preview",
+  "version": "0.6.0",
+  "description": "Outil de prévisualisation GTM alternatif — remplace le mode preview natif de Google Tag Manager",
+
+  "permissions": [
+    "storage",
+    "scripting",
+    "tabs",
+    "webNavigation",
+    "activeTab",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": ["<all_urls>"],
+
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+
+  "devtools_page": "devtools/devtools.html",
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "GTM Preview"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
