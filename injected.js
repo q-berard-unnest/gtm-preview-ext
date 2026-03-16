@@ -348,11 +348,52 @@
     }
   }
 
+  // ─── Détection des IDs GTM sur la page ────────────────────────────────────
+
+  /**
+   * Scanne la page pour trouver les IDs de conteneurs GTM/GA4 :
+   *   1. window.google_tag_manager  (GTMs déjà chargés)
+   *   2. <script src="...gtm.js?id=...">  (balises présentes même si le JS est bloqué)
+   * Envoie GTM_IDS_DETECTED au content script via postMessage.
+   */
+  function detectGtmIds() {
+    const ids = new Set();
+
+    // GTMs chargés (présents dans l'objet global de GTM)
+    if (window.google_tag_manager && typeof window.google_tag_manager === 'object') {
+      Object.keys(window.google_tag_manager).forEach(function(key) {
+        if (/^[A-Z]{2,5}-[A-Z0-9]+$/.test(key)) ids.add(key);
+      });
+    }
+
+    // Balises <script src="...googletagmanager.com/gtm.js?id=GTM-XXXXXX">
+    document.querySelectorAll('script[src*="googletagmanager.com/gtm.js"]').forEach(function(s) {
+      try {
+        var url = new URL(s.src);
+        var id = url.searchParams.get('id');
+        if (id) ids.add(id);
+      } catch (e) {}
+    });
+
+    if (ids.size > 0) {
+      window.postMessage({
+        source: 'gtm-preview-injected',
+        type:   'GTM_IDS_DETECTED',
+        ids:    Array.from(ids),
+      }, '*');
+    }
+  }
+
   // ─── Démarrage ────────────────────────────────────────────────────────────
 
   hookDataLayer();
   if (window.__gtmPreviewBlockMode) simulateGtmLifecycle();
   initSyntheticHooks();
+
+  // Détecter les GTMs immédiatement puis après chargement asynchrone
+  detectGtmIds();
+  setTimeout(detectGtmIds, 1500);
+  setTimeout(detectGtmIds, 4000);
 
   console.log('[GTM Preview] dataLayer hooké avec succès');
 

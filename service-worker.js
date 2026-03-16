@@ -1,12 +1,6 @@
 // ============================================================
 // service-worker.js — Orchestration centrale (Phase 2)
 // ============================================================
-// Nouveautés Phase 2 :
-//   • Import des modules lib (ES modules)
-//   • Évaluation des triggers GTM à chaque push dataLayer
-//   • Cache du conteneur parsé (invalidé si le JSON change)
-//   • Calcul du dataLayer fusionné pour la résolution des variables
-// ============================================================
 
 'use strict';
 
@@ -26,6 +20,9 @@ const devtoolsPorts = new Map();
 /** Buffer d'événements enrichis par onglet @type {Map<number, Array>} */
 const eventsByTab = new Map();
 
+/** IDs GTM détectés par onglet @type {Map<number, string[]>} */
+const detectedGtmsByTab = new Map();
+
 /** Conteneur GTM parsé (cache invalidé sur changement de storage) */
 let containerCache = null;
 
@@ -38,13 +35,82 @@ let tagEngineCache = null;
 /** Compteurs de déclenchements ONCE par onglet @type {Map<number, Map<string,number>>} */
 const tagFireCountByTab = new Map();
 
-// ─── Gestion du cache du conteneur ───────────────────────────────────────────
+// ─── Helpers format blockedSites ─────────────────────────────────────────────
 
 /**
- * Retourne le TriggerEngine chargé, ou null si aucun conteneur n'est importé.
- * Charge et parse le conteneur depuis chrome.storage.local si nécessaire.
- * @returns {Promise<TriggerEngine|null>}
+ * Normalise une entrée blockedSites (ancienne = number, nouvelle = objet).
+ * @param {number|Object|undefined} v
+ * @returns {{ ruleId: number, gtmId: string|null, liveMode: boolean }|null}
  */
+function normBlockEntry(v) {
+  if (!v) return null;
+  if (typeof v === 'number') return { ruleId: v, gtmId: null, liveMode: false };
+  if (typeof v === 'object') return { ruleId: v.ruleId, gtmId: v.gtmId || null, liveMode: !!v.liveMode };
+  return null;
+}
+
+/**
+ * Construit une règle declarativeNetRequest pour bloquer GTM.
+ * Si gtmId est fourni, filtre sur l'URL spécifique de ce conteneur.
+ */
+function makeDNRRule(ruleId, hostname, gtmId) {
+  return {
+    id: ruleId,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: gtmId
+        ? `||googletagmanager.com/gtm.js*id=${gtmId}`
+        : '||googletagmanager.com/gtm.js',
+      initiatorDomains: [hostname],
+      resourceTypes: ['script'],
+    },
+  };
+}
+
+// ─── Résolution de templates pour le mode Live ───────────────────────────────
+
+/**
+ * Remplace {{VarName}} dans un template par les valeurs de variableValues.
+ * Ignore les marqueurs pageEval (variables client-side non disponibles ici).
+ */
+function resolveTemplateForLive(template, variableValues) {
+  if (!template || !variableValues) return template;
+  return template.replace(/\{\{([^}]+)\}\}/g, function(match, varName) {
+    const name = varName.trim();
+    if (Object.prototype.hasOwnProperty.call(variableValues, name)) {
+      const v = variableValues[name];
+      if (v && typeof v === 'object' && v.__gtmPreviewPageEval) return '';
+      if (v === null || v === undefined) return '';
+      return String(v);
+    }
+    return '';
+  });
+}
+
+/**
+ * Exécute le contenu HTML d'un tag Custom HTML dans le contexte de la page.
+ * Cette fonction est sérialisée et exécutée dans world: 'MAIN'.
+ */
+function executeGtmHtml(html) {
+  var temp = document.createElement('div');
+  temp.innerHTML = html;
+  var scripts = temp.getElementsByTagName('script');
+  var toRun = [];
+  for (var i = 0; i < scripts.length; i++) {
+    toRun.push({ src: scripts[i].src, text: scripts[i].textContent });
+  }
+  toRun.forEach(function(s) {
+    var el = document.createElement('script');
+    if (s.src) { el.src = s.src; }
+    else        { el.textContent = s.text; }
+    document.head.appendChild(el);
+    el.remove();
+  });
+}
+
+// ─── Gestion du cache du conteneur ───────────────────────────────────────────
+
 async function getEngine() {
   if (engineCache) return engineCache;
 
@@ -68,9 +134,6 @@ async function getEngine() {
   });
 }
 
-/**
- * Invalide le cache du conteneur (appelé quand le JSON change dans le storage).
- */
 function resetEngine() {
   containerCache = null;
   engineCache    = null;
@@ -78,7 +141,6 @@ function resetEngine() {
   console.log('[GTM Preview] Cache conteneur invalidé');
 }
 
-// Invalider le cache quand l'utilisateur importe un nouveau JSON via le popup
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.gtmContainer) {
     resetEngine();
@@ -87,14 +149,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Reconstitue l'état fusionné du dataLayer depuis le début de la page
- * jusqu'à (mais non compris) l'événement courant.
- * GTM fusionne les pushes successifs dans un état global.
- *
- * @param {Array} events - buffer d'événements de l'onglet
- * @returns {Object}
- */
 function buildMergedDataLayer(events) {
   const merged = {};
   for (const event of events) {
@@ -105,44 +159,56 @@ function buildMergedDataLayer(events) {
   return merged;
 }
 
-/**
- * Transmet un message au DevTools panel de l'onglet donné.
- * Gère silencieusement les ports fermés.
- * @param {number} tabId
- * @param {Object} message
- */
 function sendToPanel(tabId, message) {
   const port = devtoolsPorts.get(tabId);
   if (!port) return;
   try {
     port.postMessage(message);
   } catch {
-    // Port fermé entre-temps
     devtoolsPorts.delete(tabId);
   }
 }
 
-// ─── Gestion asynchrone des messages ─────────────────────────────────────────
+// ─── Mode Live : exécution des tags Custom HTML ───────────────────────────────
 
 /**
- * Traite les messages qui nécessitent async (évaluation des triggers, etc.)
- * Séparé du listener principal pour permettre l'usage de await.
- * @param {Object} message
- * @param {number} tabId
+ * Si le mode live est activé pour ce site, exécute les tags Custom HTML déclenchés.
  */
+function executeLiveHtmlTags(tabId, hostname, tagResults, variableValues) {
+  if (!tagResults || !variableValues) return;
+
+  chrome.storage.local.get(['blockedSites'], (result) => {
+    const entry = normBlockEntry((result.blockedSites || {})[hostname]);
+    if (!entry?.liveMode) return;
+
+    const firedHtmlTags = tagResults.filter(t => t.status === 'FIRED' && t.tagType === 'html');
+    for (const tag of firedHtmlTags) {
+      const htmlParam = (tag.tagParams || []).find(p => p.key === 'html');
+      if (!htmlParam?.value) continue;
+
+      const resolvedHtml = resolveTemplateForLive(htmlParam.value, variableValues);
+      chrome.scripting.executeScript({
+        target: { tabId },
+        world:  'MAIN',
+        func:   executeGtmHtml,
+        args:   [resolvedHtml],
+      }).catch(e => console.warn('[GTM Preview Live] Erreur exécution tag HTML:', e.message));
+    }
+  });
+}
+
+// ─── Gestion asynchrone des messages ─────────────────────────────────────────
+
 async function handleAsyncMessage(message, tabId) {
 
   switch (message.type) {
 
-    // ── Nouvel événement dataLayer ──────────────────────────────────────────
     case 'DATALAYER_PUSH': {
       if (!eventsByTab.has(tabId)) eventsByTab.set(tabId, []);
       const events = eventsByTab.get(tabId);
 
-      // État fusionné avant ce push (pour résolution des variables)
       const mergedBeforePush = buildMergedDataLayer(events);
 
-      // Évaluer les triggers si un conteneur est chargé
       let triggerResults = null;
       const engine = await getEngine();
       if (engine) {
@@ -157,7 +223,6 @@ async function handleAsyncMessage(message, tabId) {
         }
       }
 
-      // Résoudre toutes les variables si un conteneur est chargé
       let variableValues = null;
       if (engine && containerCache) {
         try {
@@ -171,7 +236,6 @@ async function handleAsyncMessage(message, tabId) {
         }
       }
 
-      // Évaluer les tags si un conteneur est chargé
       let tagResults = null;
       if (tagEngineCache) {
         try {
@@ -179,7 +243,6 @@ async function handleAsyncMessage(message, tabId) {
           const { results, toIncrement } = tagEngineCache.evaluate(triggerResults || [], firedCounts);
           tagResults = results;
 
-          // Mettre à jour les compteurs ONCE
           if (toIncrement.length > 0) {
             if (!tagFireCountByTab.has(tabId)) tagFireCountByTab.set(tabId, new Map());
             const counts = tagFireCountByTab.get(tabId);
@@ -190,19 +253,21 @@ async function handleAsyncMessage(message, tabId) {
         }
       }
 
-      // Enrichir l'événement avec les résultats
+      // Mode live : exécuter les tags Custom HTML déclenchés
+      const hostname = message.event?.pageContext?.pageHostname;
+      if (hostname) {
+        executeLiveHtmlTags(tabId, hostname, tagResults, variableValues);
+      }
+
       const enrichedEvent = { ...message.event, triggerResults, variableValues, tagResults };
 
-      // Stocker dans le buffer (avec limite)
       events.push(enrichedEvent);
       if (events.length > MAX_EVENTS_PER_TAB) events.shift();
 
-      // Transmettre au panel
       sendToPanel(tabId, { type: 'DATALAYER_PUSH', event: enrichedEvent });
       break;
     }
 
-    // ── Navigation : réinitialiser le buffer ───────────────────────────────
     case 'PAGE_NAVIGATED': {
       eventsByTab.delete(tabId);
       tagFireCountByTab.delete(tabId);
@@ -210,7 +275,6 @@ async function handleAsyncMessage(message, tabId) {
       break;
     }
 
-    // ── Content script prêt ────────────────────────────────────────────────
     case 'CONTENT_SCRIPT_READY': {
       sendToPanel(tabId, { type: 'CONTENT_SCRIPT_READY', url: message.url });
       break;
@@ -230,7 +294,6 @@ chrome.runtime.onConnect.addListener((port) => {
       tabId = message.tabId;
       devtoolsPorts.set(tabId, port);
 
-      // Rejouer l'historique existant (si la page a été chargée avant l'ouverture du panel)
       const existingEvents = eventsByTab.get(tabId) || [];
       if (existingEvents.length > 0) {
         port.postMessage({ type: 'REPLAY_EVENTS', events: existingEvents });
@@ -250,14 +313,28 @@ chrome.runtime.onConnect.addListener((port) => {
 // ─── Listener principal ───────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+
+  // GET_DETECTED_GTMS : appelé depuis le popup (pas de sender.tab)
+  if (message.type === 'GET_DETECTED_GTMS') {
+    sendResponse({ ids: detectedGtmsByTab.get(message.tabId) || [] });
+    return true;
+  }
+
   const tabId = sender.tab?.id;
   if (tabId === undefined) return;
 
+  // GTM_IDS_DETECTED : pas de réponse nécessaire
+  if (message.type === 'GTM_IDS_DETECTED') {
+    const existing = detectedGtmsByTab.get(tabId) || [];
+    const merged   = [...new Set([...existing, ...(message.ids || [])])];
+    detectedGtmsByTab.set(tabId, merged);
+    sendToPanel(tabId, { type: 'GTM_IDS_DETECTED', ids: merged });
+    return;
+  }
+
   // INJECT_INTO_FRAME : injecter injected.js dans un iframe (ex: Shopify web-pixel-sandbox)
-  // chrome.scripting.executeScript contourne les CSP de l'iframe
   if (message.type === 'INJECT_INTO_FRAME') {
     const frameId = sender.frameId;
-    const tabId   = sender.tab?.id;
     if (!frameId || !tabId) return;
 
     const tabUrl = sender.tab?.url;
@@ -266,21 +343,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       try { tabHostname = new URL(tabUrl).hostname; } catch { tabHostname = ''; }
       chrome.storage.local.get(['disabledSites'], (result) => {
         const disabledSites = result.disabledSites || [];
-        if (disabledSites.includes(tabHostname)) return; // Site désactivé
+        if (disabledSites.includes(tabHostname)) return;
         chrome.scripting.executeScript({
           target: { tabId, frameIds: [frameId] },
-          world: 'MAIN',
-          files: ['injected.js'],
+          world:  'MAIN',
+          files:  ['injected.js'],
         }).catch(e => console.warn('[GTM Preview] Injection iframe échouée :', e.message));
       });
     } else {
       chrome.scripting.executeScript({
         target: { tabId, frameIds: [frameId] },
-        world: 'MAIN',
-        files: ['injected.js'],
+        world:  'MAIN',
+        files:  ['injected.js'],
       }).catch(e => console.warn('[GTM Preview] Injection iframe échouée :', e.message));
     }
-    return; // pas de sendResponse
+    return;
   }
 
   // GET_EXTENSION_STATE est synchrone (sendResponse requis)
@@ -290,17 +367,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const blockedSites  = result.blockedSites  || {};
       sendResponse({
         enabled: !disabledSites.includes(message.hostname),
-        blocked: !!blockedSites[message.hostname],
+        blocked: !!normBlockEntry(blockedSites[message.hostname]),
       });
     });
-    return true; // async sendResponse
+    return true;
   }
 
-  // Tous les autres messages sont traités de façon asynchrone
   handleAsyncMessage(message, tabId).catch((e) => {
     console.error('[GTM Preview] Erreur handleAsyncMessage :', e);
   });
-  // Pas de sendResponse → pas besoin de return true
 });
 
 // ─── Nettoyage ────────────────────────────────────────────────────────────────
@@ -309,28 +384,23 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   eventsByTab.delete(tabId);
   tagFireCountByTab.delete(tabId);
   devtoolsPorts.delete(tabId);
+  detectedGtmsByTab.delete(tabId);
 });
 
 // ─── Resync des règles declarativeNetRequest au démarrage ────────────────────
-// Les règles dynamiques sont perdues si l'extension est rechargée/réinstallée.
-// On les recrée depuis le storage au démarrage du service worker.
 chrome.storage.local.get(['blockedSites'], (result) => {
   const blockedSites = result.blockedSites || {};
   const entries = Object.entries(blockedSites);
   if (entries.length === 0) return;
 
-  const addRules = entries.map(([hostname, ruleId]) => ({
-    id: ruleId,
-    priority: 1,
-    action: { type: 'block' },
-    condition: {
-      urlFilter: '||googletagmanager.com/gtm.js',
-      initiatorDomains: [hostname],
-      resourceTypes: ['script'],
-    },
-  }));
+  const addRules = entries.map(([hostname, raw]) => {
+    const entry = normBlockEntry(raw);
+    if (!entry) return null;
+    return makeDNRRule(entry.ruleId, hostname, entry.gtmId);
+  }).filter(Boolean);
 
-  // Supprimer toutes les règles dynamiques existantes puis recréer
+  if (addRules.length === 0) return;
+
   chrome.declarativeNetRequest.getDynamicRules((existing) => {
     const removeRuleIds = existing.map(r => r.id);
     chrome.declarativeNetRequest.updateDynamicRules(
@@ -346,4 +416,4 @@ chrome.storage.local.get(['blockedSites'], (result) => {
   });
 });
 
-console.log('[GTM Preview] Service Worker (Phase 2) démarré');
+console.log('[GTM Preview] Service Worker démarré');

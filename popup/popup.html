@@ -1,14 +1,13 @@
 <!DOCTYPE html>
 <!--
   popup.html — Interface du popup de l'extension GTM Preview
-  Permet : import du JSON GTM, toggle par site, infos du conteneur
 -->
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <title>GTM Preview</title>
   <style>
-    /* ─── Variables & Base ───────────────────────────────────── */
+    /* ─── Variables & Base ───────────────────────────────────────────────── */
     :root {
       --bg:         #1e1e1e;
       --bg-card:    #2d2d2d;
@@ -36,7 +35,7 @@
       padding: 0;
     }
 
-    /* ─── En-tête ────────────────────────────────────────────── */
+    /* ─── En-tête ────────────────────────────────────────────────────────── */
     .header {
       display: flex;
       align-items: center;
@@ -67,7 +66,12 @@
       text-transform: uppercase;
     }
 
-    /* ─── Sections ───────────────────────────────────────────── */
+    .badge-mode.live {
+      background: var(--red);
+      color: #fff;
+    }
+
+    /* ─── Sections ───────────────────────────────────────────────────────── */
     .section {
       padding: 12px 14px;
       border-bottom: 1px solid var(--border);
@@ -82,7 +86,7 @@
       margin-bottom: 8px;
     }
 
-    /* ─── Carte conteneur ────────────────────────────────────── */
+    /* ─── Carte conteneur ────────────────────────────────────────────────── */
     .container-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -122,7 +126,7 @@
       font-family: var(--font-mono);
     }
 
-    /* ─── Boutons ─────────────────────────────────────────────── */
+    /* ─── Boutons ─────────────────────────────────────────────────────────── */
     .btn {
       display: flex;
       align-items: center;
@@ -161,7 +165,7 @@
 
     .btn + .btn { margin-top: 6px; }
 
-    /* ─── Toggle site ─────────────────────────────────────────── */
+    /* ─── Toggle site ─────────────────────────────────────────────────────── */
     .site-row {
       display: flex;
       align-items: center;
@@ -238,10 +242,34 @@
       background: #fff;
     }
 
-    /* ─── Input file caché ───────────────────────────────────── */
+    /* ─── Sélecteur GTM ───────────────────────────────────────────────────── */
+    .gtm-select {
+      width: 100%;
+      margin-top: 6px;
+      background: var(--bg-input);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      outline: none;
+    }
+
+    .gtm-select option {
+      background: var(--bg-card);
+      color: var(--text);
+    }
+
+    .gtm-select:focus {
+      border-color: var(--accent);
+    }
+
+    /* ─── Input file caché ───────────────────────────────────────────────── */
     #file-input { display: none; }
 
-    /* ─── Message de feedback ────────────────────────────────── */
+    /* ─── Message de feedback ────────────────────────────────────────────── */
     .feedback {
       font-size: 11px;
       padding: 6px 10px;
@@ -264,7 +292,7 @@
       display: block;
     }
 
-    /* ─── Footer ─────────────────────────────────────────────── */
+    /* ─── Footer ─────────────────────────────────────────────────────────── */
     .footer {
       padding: 8px 14px;
       text-align: center;
@@ -279,7 +307,7 @@
   <div class="header">
     <div>
       <div class="header__title">GTM Preview</div>
-      <div class="header__version">v0.6.0</div>
+      <div class="header__version">v0.7.0</div>
     </div>
     <span class="badge-mode" id="badge-mode">Dry-run</span>
   </div>
@@ -302,10 +330,8 @@
       </div>
     </div>
 
-    <!-- Input fichier caché -->
     <input type="file" id="file-input" accept=".json,application/json">
 
-    <!-- Boutons import -->
     <button class="btn btn--primary" id="btn-import">
       <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
         <path d="M8 1v8.5l-2.5-2.5-.7.7L8 11l3.2-3.3-.7-.7L8 9.5V1H8zM2 13v1h12v-1H2z"/>
@@ -347,6 +373,29 @@
         <span class="toggle-label" id="block-label">Désactivé</span>
         <label class="toggle" title="Bloquer GTM.js sur ce site">
           <input type="checkbox" id="block-toggle">
+          <span class="toggle__track"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Sélecteur GTM ID (affiché si des GTMs sont détectés) -->
+    <div id="gtm-selector-row" style="margin-top: 8px; display: none;">
+      <div style="font-size: 11px; color: var(--text-dim);">GTM à bloquer</div>
+      <select class="gtm-select" id="gtm-id-select">
+        <option value="">Tous les GTMs</option>
+      </select>
+    </div>
+
+    <!-- Mode Live -->
+    <div id="live-mode-row" class="site-row" style="margin-top: 8px; display: none;">
+      <div>
+        <div style="font-size: 11px; color: var(--text);">Mode Live</div>
+        <div style="font-size: 10px; color: var(--text-dim); margin-top: 1px;">Exécute les tags Custom HTML déclenchés</div>
+      </div>
+      <div class="toggle-wrap">
+        <span class="toggle-label" id="live-label">Désactivé</span>
+        <label class="toggle" title="Activer le mode live">
+          <input type="checkbox" id="live-toggle">
           <span class="toggle__track"></span>
         </label>
       </div>

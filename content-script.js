@@ -106,6 +106,13 @@ window.addEventListener('message', (event) => {
       // Ignorer si le service worker est temporairement indisponible (MV3)
     });
   }
+
+  if (event.data.type === 'GTM_IDS_DETECTED') {
+    chrome.runtime.sendMessage({
+      type: 'GTM_IDS_DETECTED',
+      ids:  event.data.ids || [],
+    }).catch(() => {});
+  }
 });
 
 // ─── Détection des navigations SPA ───────────────────────────────────────────

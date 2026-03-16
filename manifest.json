@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GTM Preview",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Outil de prévisualisation GTM alternatif — remplace le mode preview natif de Google Tag Manager",
 
   "permissions": [
