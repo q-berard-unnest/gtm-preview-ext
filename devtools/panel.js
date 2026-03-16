@@ -169,6 +169,22 @@ function updateBlockBadge(blocked) {
   badgeMode.className    = 'badge badge--mode' + (blocked ? ' badge--blocked' : '');
 }
 
+/**
+ * Lit l'état de blocage depuis le storage pour l'onglet inspecté
+ * et met à jour le badge (utile si le panel s'ouvre après la page).
+ */
+function loadBlockedState() {
+  chrome.tabs.get(tabId, (tab) => {
+    if (chrome.runtime.lastError || !tab?.url) return;
+    let hostname;
+    try { hostname = new URL(tab.url).hostname; } catch { return; }
+    chrome.storage.local.get(['blockedSites'], (result) => {
+      const blocked = !!(result.blockedSites || {})[hostname];
+      updateBlockBadge(blocked);
+    });
+  });
+}
+
 // ─── Ajout d'événements ───────────────────────────────────────────────────────
 
 /**
@@ -1007,7 +1023,7 @@ function buildTagItem(r) {
   }
 
   return `
-    <div class="tag-item tag-item--${statusClass}">
+    <div class="tag-item tag-item--${statusClass}" data-tag-id="${escapeHtml(r.tagId)}">
       <span class="tag-item__icon">${icon}</span>
       <div class="tag-item__body">
         <div class="tag-item__header">
@@ -1038,6 +1054,116 @@ function getTagTypeClass(type) {
     case 'fls':   return 'floodlight';
     default:      return 'other';
   }
+}
+
+// ─── Tag detail (click pour expandre les paramètres) ─────────────────────────
+
+/**
+ * Délégation de clic sur la liste des tags.
+ * Toggle le détail des paramètres d'un tag au clic.
+ */
+tagsList.addEventListener('click', (e) => {
+  const item = e.target.closest('.tag-item');
+  if (!item) return;
+  toggleTagDetail(item);
+});
+
+/**
+ * Ouvre ou ferme le détail des paramètres d'un tag.
+ * @param {HTMLElement} item - L'élément .tag-item cliqué
+ */
+function toggleTagDetail(item) {
+  // Fermer si déjà ouvert
+  const existing = item.nextElementSibling;
+  if (existing?.classList.contains('tag-detail')) {
+    item.classList.remove('expanded');
+    existing.remove();
+    return;
+  }
+
+  // Fermer les autres détails ouverts
+  const openDetails = tagsList.querySelectorAll('.tag-detail');
+  openDetails.forEach(d => {
+    d.previousElementSibling?.classList.remove('expanded');
+    d.remove();
+  });
+
+  item.classList.add('expanded');
+
+  const tagId = item.dataset.tagId;
+  const result = currentTagResults?.find(r => r.tagId === tagId);
+  if (!result) return;
+
+  const detailEl = buildTagDetailEl(result, currentVarEvent?.variableValues);
+  item.insertAdjacentElement('afterend', detailEl);
+}
+
+/**
+ * Construit l'élément DOM du détail des paramètres d'un tag.
+ * @param {Object} result        - TagResult (avec tagParams)
+ * @param {Object} variableValues - Variables résolues pour l'événement courant
+ * @returns {HTMLElement}
+ */
+function buildTagDetailEl(result, variableValues) {
+  const div = document.createElement('div');
+  div.className = 'tag-detail';
+
+  const params = result.tagParams;
+  if (!params || params.length === 0) {
+    div.innerHTML = '<p class="tag-detail__empty">Aucun paramètre</p>';
+    return div;
+  }
+
+  const rows = params.map(p => {
+    const key = escapeHtml(p.key || '');
+    let valueHtml;
+
+    if (p.list) {
+      valueHtml = `<span class="tag-param-complex">[liste — ${p.list.length} élément(s)]</span>`;
+    } else if (p.map) {
+      valueHtml = `<span class="tag-param-complex">[map — ${p.map.length} entrée(s)]</span>`;
+    } else {
+      const raw = p.value ?? '';
+      valueHtml = `<span class="tag-param-raw">${escapeHtml(String(raw))}</span>`;
+
+      // Résolution des références {{VarName}}
+      if (typeof raw === 'string' && raw.includes('{{') && variableValues) {
+        const resolved = resolveParamDisplay(raw, variableValues);
+        if (resolved !== null && resolved !== raw) {
+          valueHtml += ` <span class="tag-param-resolved">→ ${escapeHtml(String(resolved))}</span>`;
+        }
+      }
+    }
+
+    return `<tr><td class="tag-param-key">${key}</td><td class="tag-param-value">${valueHtml}</td></tr>`;
+  }).join('');
+
+  div.innerHTML = `<table class="tag-params-table"><tbody>${rows}</tbody></table>`;
+  return div;
+}
+
+/**
+ * Résout les références {{VarName}} dans une valeur de paramètre.
+ * @param {string} template
+ * @param {Object} variableValues
+ * @returns {string|null} Valeur résolue, ou null si aucune variable connue
+ */
+function resolveParamDisplay(template, variableValues) {
+  // Template = une seule variable
+  const single = template.match(/^\{\{([^}]+)\}\}$/);
+  if (single) {
+    const name = single[1].trim();
+    if (name in variableValues) return variableValues[name];
+    return null;
+  }
+  // Interpolation dans une chaîne
+  let hasResolved = false;
+  const result = template.replace(/\{\{([^}]+)\}\}/g, (_, name) => {
+    const v = variableValues[name.trim()];
+    if (v !== undefined && v !== null) { hasResolved = true; return String(v); }
+    return `{{${name}}}`;
+  });
+  return hasResolved ? result : null;
 }
 
 // Boutons de filtre des tags
@@ -1305,3 +1431,4 @@ btnReeval.addEventListener('click', () => {
 
 loadContainerInfo();
 connectToServiceWorker();
+loadBlockedState();

@@ -156,6 +156,16 @@ function notifyNavigation(url) {
 // ─── Initialisation ───────────────────────────────────────────────────────────
 
 async function init() {
+  // Shopify web-pixel-sandbox frames : injection via service worker (bypass CSP)
+  const isWebPixelFrame = typeof window.name === 'string' && window.name.startsWith('web-pixel-sandbox');
+  if (isWebPixelFrame) {
+    chrome.runtime.sendMessage({ type: 'INJECT_INTO_FRAME' }).catch(() => {});
+    return;
+  }
+
+  // Dans les autres iframes (non web-pixel) : ne rien faire
+  if (window !== window.top) return;
+
   const { enabled, blocked } = await checkEnabled();
   if (!enabled) return;
 

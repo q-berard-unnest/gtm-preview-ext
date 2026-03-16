@@ -53,6 +53,9 @@
   --json-bracket: #cccccc;
 }
 
+/* Fix: HTML hidden attribute must override author display rules */
+[hidden] { display: none !important; }
+
 /* ─── Reset & base ──────────────────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -1012,7 +1015,9 @@ input:focus {
   transition: background 0.1s;
 }
 
+.tag-item { cursor: pointer; }
 .tag-item:hover { background: var(--bg-hover); }
+.tag-item.expanded { background: var(--bg-hover); }
 
 .tag-item__icon {
   font-size: 13px;
@@ -1084,6 +1089,59 @@ input:focus {
   color: var(--text-dim);
   margin-left: auto;
   flex-shrink: 0;
+}
+
+/* ─── Tag detail expandé ───────────────────────────────────────────────────── */
+
+.tag-detail {
+  padding: 0 12px 8px 36px;
+  border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.04));
+  background: var(--bg-code);
+}
+
+.tag-detail__empty {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.tag-params-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.tag-params-table td {
+  padding: 2px 6px 2px 0;
+  vertical-align: top;
+}
+
+.tag-param-key {
+  font-family: var(--font-mono);
+  color: var(--json-key);
+  white-space: nowrap;
+  min-width: 140px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag-param-value {
+  font-family: var(--font-mono);
+  color: var(--json-string);
+  word-break: break-all;
+}
+
+.tag-param-resolved {
+  color: var(--color-custom, #66bb6a);
+  font-size: 10px;
+  font-style: italic;
+}
+
+.tag-param-complex {
+  color: var(--text-dim);
+  font-style: italic;
 }
 
 /* Pills de type de tag */
@@ -1227,3 +1285,6 @@ input:focus {
 #tab-datalayer .json-viewer {
   flex: 1;
 }
+
+/* Fix: accent variable used in filter buttons */
+:root { --accent: var(--color-pageview); --bg-active: var(--bg-input); }

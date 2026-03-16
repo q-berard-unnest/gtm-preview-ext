@@ -253,6 +253,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab?.id;
   if (tabId === undefined) return;
 
+  // INJECT_INTO_FRAME : injecter injected.js dans un iframe (ex: Shopify web-pixel-sandbox)
+  // chrome.scripting.executeScript contourne les CSP de l'iframe
+  if (message.type === 'INJECT_INTO_FRAME') {
+    const frameId = sender.frameId;
+    const tabId   = sender.tab?.id;
+    if (!frameId || !tabId) return;
+
+    const tabUrl = sender.tab?.url;
+    if (tabUrl) {
+      let tabHostname;
+      try { tabHostname = new URL(tabUrl).hostname; } catch { tabHostname = ''; }
+      chrome.storage.local.get(['disabledSites'], (result) => {
+        const disabledSites = result.disabledSites || [];
+        if (disabledSites.includes(tabHostname)) return; // Site désactivé
+        chrome.scripting.executeScript({
+          target: { tabId, frameIds: [frameId] },
+          world: 'MAIN',
+          files: ['injected.js'],
+        }).catch(e => console.warn('[GTM Preview] Injection iframe échouée :', e.message));
+      });
+    } else {
+      chrome.scripting.executeScript({
+        target: { tabId, frameIds: [frameId] },
+        world: 'MAIN',
+        files: ['injected.js'],
+      }).catch(e => console.warn('[GTM Preview] Injection iframe échouée :', e.message));
+    }
+    return; // pas de sendResponse
+  }
+
   // GET_EXTENSION_STATE est synchrone (sendResponse requis)
   if (message.type === 'GET_EXTENSION_STATE') {
     chrome.storage.local.get(['disabledSites', 'blockedSites'], (result) => {
@@ -279,6 +309,41 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   eventsByTab.delete(tabId);
   tagFireCountByTab.delete(tabId);
   devtoolsPorts.delete(tabId);
+});
+
+// ─── Resync des règles declarativeNetRequest au démarrage ────────────────────
+// Les règles dynamiques sont perdues si l'extension est rechargée/réinstallée.
+// On les recrée depuis le storage au démarrage du service worker.
+chrome.storage.local.get(['blockedSites'], (result) => {
+  const blockedSites = result.blockedSites || {};
+  const entries = Object.entries(blockedSites);
+  if (entries.length === 0) return;
+
+  const addRules = entries.map(([hostname, ruleId]) => ({
+    id: ruleId,
+    priority: 1,
+    action: { type: 'block' },
+    condition: {
+      urlFilter: '||googletagmanager.com/gtm.js',
+      initiatorDomains: [hostname],
+      resourceTypes: ['script'],
+    },
+  }));
+
+  // Supprimer toutes les règles dynamiques existantes puis recréer
+  chrome.declarativeNetRequest.getDynamicRules((existing) => {
+    const removeRuleIds = existing.map(r => r.id);
+    chrome.declarativeNetRequest.updateDynamicRules(
+      { addRules, removeRuleIds },
+      () => {
+        if (chrome.runtime.lastError) {
+          console.warn('[GTM Preview] Resync règles DNR :', chrome.runtime.lastError.message);
+        } else {
+          console.log(`[GTM Preview] ${addRules.length} règle(s) DNR resynchronisée(s)`);
+        }
+      }
+    );
+  });
 });
 
 console.log('[GTM Preview] Service Worker (Phase 2) démarré');
